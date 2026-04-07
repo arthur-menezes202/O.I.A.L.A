@@ -1,2 +1,2 @@
-# mini-location-airplane-language-c
- Desenvolver uma aplicação funcional de rastreamento de aeronaves utlizando linguagem c puro e APIs
+# O.I.A.L.A
+Open Interface for Aircraft Location Analysis
