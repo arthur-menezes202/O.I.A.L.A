@@ -4,21 +4,24 @@
 
 NAME        = oiala
 CC          = g++
-CFLAGS      = -Wall -Wextra -Werror -std=c++17 -I./inc
+# CFLAGS      = -Wall -Wextra -Werror -std=c++17 -I./inc
+CFLAGS      = 
 # Adicionando flags de depuração para facilitar no GDB
 CFLAGS     += -g
 
 # Bibliotecas (Flags fornecidas por você)
-LIBS        = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+# Adicione o -lcurl no final da lista
+LIBS = -lraylib -lGL -lm -lpthread -ldl -lrt -lX11 -lcurl
 
 # Diretórios
 SRC_DIR     = O.I.A.L.A.
 INC_DIR     = inc
-OBJ_DIR     = obj
+OBJ_DIR     = Obj
 
 # Arquivos
-SRC         = $(wildcard $(SRC_DIR)/*.cpp)
-OBJ         = $(SRC:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)
+CPP_SRC     = $(wildcard $(SRC_DIR)/*.cpp)
+C_SRC       = $(wildcard $(SRC_DIR)/*.c)
+OBJ         = $(CPP_SRC:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o) $(C_SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
 # Cores para o terminal (Estética de Engenharia)
 GREEN       = \033[0;32m
@@ -39,6 +42,11 @@ $(NAME): $(OBJ)
 
 # Compilação dos objetos
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+	@mkdir -p $(OBJ_DIR)
+	@echo "$(CYAN)Compilando $<...$(RESET)"
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(OBJ_DIR)
 	@echo "$(CYAN)Compilando $<...$(RESET)"
 	@$(CC) $(CFLAGS) -c $< -o $@

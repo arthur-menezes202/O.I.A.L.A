@@ -1,37 +1,121 @@
 #include "raylib.h"
+#include "raymath.h"
+#include <curl/curl.h>
+#include "cJSON.h"
+#include <iostream>
+#include <string>
+#include <vector>
 
-int main(void) {
-    // 1. Inicialização da Janela
-    const int screenWidth = 1250;
-    const int screenHeight = 800;
-    InitWindow(screenWidth, screenHeight, "O.I.A.L.A. - Visualizador de Mapa");
+// --- CONFIGURAÇÕES DO MAPA (SÃO PAULO) ---
+const float MAP_MIN_LAT = -24.00f;
+const float MAP_MAX_LAT = -23.30f;
+const float MAP_MIN_LON = -47.00f;
+const float MAP_MAX_LON = -46.30f;
 
-    // 2. Carregamento da Textura (O arquivo deve estar na pasta correta)
-    // Raylib entende PNG/JPG automaticamente!
-    Texture2D mapTexture = LoadTexture("/home/arthur/peojetos-pessoais/O.I.A.L.A/O.I.A.L.A./resources/map.png");
+struct Plane {
+	std::string callsign;
+	float lat, lon, heading;
+	bool active;
+};
 
-    SetTargetFPS(60); // Define 60 quadros por segundo
+// --- FUNÇÃO DE AUXÍLIO PARA CURL ---
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* s) {
+	size_t newLength = size * nmemb;
+	s->append((char*)contents, newLength);
+	return newLength;
+}
 
-    // Loop Principal
-    while (!WindowShouldClose()) {
-        // --- Atualização de Lógica (Zoom, Posição) ---
-        
-        // --- Desenho ---
-        BeginDrawing();
-            ClearBackground(RAYWHITE);
+// --- CONVERSÃO GEOGRÁFICA PARA PIXEL ---
+Vector2 GeoToPixel(float lat, float lon, int width, int height) {
+	float x = (lon - MAP_MIN_LON) / (MAP_MAX_LON - MAP_MIN_LON) * width;
+	// Em telas, o Y cresce para baixo, por isso invertemos a conta da latitude
+	float y = (MAP_MAX_LAT - lat) / (MAP_MAX_LAT - MAP_MIN_LAT) * height;
+	return { x, y };
+}
 
-            // Desenha a textura na posição (0, 0) com escala total
-            DrawTexture(mapTexture, 0, 0, WHITE);
+// --- BUSCA DE DADOS NA API ---
+void FetchData(std::vector<Plane>& planes) {
+	CURL* curl = curl_easy_init();
+	std::string response;
+	
+	if (curl) {
+		// URL com Bounding Box de SP
+		std::string url = "https://opensky-network.org/api/states/all?lamin=-24.0&lomin=-47.0&lamax=-23.3&lomax=-46.3";
+		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+		curl_easy_setopt(curl, CURLOPT_USERPWD, "seu_usuario:sua_senha"); // COLOQUE SEU LOGIN AQUI
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
 
-            // Exemplo de desenho de um "avião" por cima do mapa
-            DrawTriangle((Vector2){400, 200}, (Vector2){390, 220}, (Vector2){410, 220}, RED);
+		if (curl_easy_perform(curl) == CURLE_OK) {
+			cJSON* json = cJSON_Parse(response.c_str());
+			cJSON* states = cJSON_GetObjectItem(json, "states");
 
-        EndDrawing();
-    }
+			if (cJSON_IsArray(states)) {
+				planes.clear();
+				int size = cJSON_GetArraySize(states);
+				for (int i = 0; i < size; i++) {
+					cJSON* s = cJSON_GetArrayItem(states, i);
+					Plane p;
+					p.callsign = cJSON_GetArrayItem(s, 1)->valuestring;
+					p.lon = (float)cJSON_GetArrayItem(s, 5)->valuedouble;
+					p.lat = (float)cJSON_GetArrayItem(s, 6)->valuedouble;
+					p.heading = (float)cJSON_GetArrayItem(s, 10)->valuedouble;
+					p.active = true;
+					planes.push_back(p);
+				}
+			}
+			cJSON_Delete(json);
+		}
+		curl_easy_cleanup(curl);
+	}
+}
 
-    // 3. Descarregamento (Importante para evitar vazamento de memória - MISRA)
-    UnloadTexture(mapTexture);
-    CloseWindow();
+int main() {
+	InitWindow(800, 600, "O.I.A.L.A. - Radar São Paulo");
+	
+	// Carregar o Mapa (Certifique-se de que a imagem cobre exatamente o Bounding Box definido)
+	Texture2D mapTexture = LoadTexture("O.I.A.L.A./resources/map.png"); 
+	
+	std::vector<Plane> airTraffic;
+	double lastUpdate = 0;
 
-    return 0;
+	SetTargetFPS(60);
+
+	while (!WindowShouldClose()) {
+		// Atualiza a cada 10 segundos (Respeitando limites da API)
+		if (GetTime() - lastUpdate > 10) {
+			FetchData(airTraffic);
+			lastUpdate = GetTime();
+		}
+
+		BeginDrawing();
+			ClearBackground(BLACK);
+
+			// 1. Desenha o Mapa de Fundo (redimensionado para a janela)
+			DrawTexturePro(mapTexture, 
+				{0, 0, (float)mapTexture.width, (float)mapTexture.height},
+				{0, 0, 800, 600}, {0,0}, 0, WHITE);
+
+			// 2. Desenha os Aviões
+			for (const auto& p : airTraffic) {
+				Vector2 pos = GeoToPixel(p.lat, p.lon, 800, 600);
+				
+				// Desenha Triângulo Rotacionado (O Avião)
+				// Usamos DrawPoly para simplicidade ou DrawTriangle para o formato exato
+				DrawPoly(pos, 3, 10, p.heading - 90, RED); 
+				
+				DrawText(p.callsign.c_str(), pos.x + 10, pos.y + 10, 10, RAYWHITE);
+			}
+
+			// 3. UI de Status
+			DrawRectangle(0, 0, 180, 40, Fade(BLACK, 0.7f));
+			DrawText(TextFormat("Aeronaves: %d", (int)airTraffic.size()), 10, 10, 15, GREEN);
+
+		EndDrawing();
+	}
+
+	UnloadTexture(mapTexture);
+	CloseWindow();
+	return 0;
 }
