@@ -18,9 +18,9 @@ SRC_DIR     = O.I.A.L.A.
 INC_DIR     = inc
 OBJ_DIR     = Obj
 
-# Arquivos
-CPP_SRC     = $(wildcard $(SRC_DIR)/*.cpp)
-C_SRC       = $(wildcard $(SRC_DIR)/*.c)
+# Arquivos (recursivo em todos os subdiretórios)
+CPP_SRC     = $(wildcard $(SRC_DIR)/*.cpp $(SRC_DIR)/**/*.cpp)
+C_SRC       = $(wildcard $(SRC_DIR)/*.c $(SRC_DIR)/**/*.c)
 OBJ         = $(CPP_SRC:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o) $(C_SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
 # Cores para o terminal (Estética de Engenharia)
@@ -40,14 +40,14 @@ $(NAME): $(OBJ)
 	@$(CC) $(OBJ) -o $(NAME) $(LIBS)
 	@echo "$(GREEN)Projeto O.I.A.L.A. compilado com sucesso!$(RESET)"
 
-# Compilação dos objetos
+# Compilação dos objetos (mantém estrutura de diretórios)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
-	@mkdir -p $(OBJ_DIR)
+	@mkdir -p $(dir $@)
 	@echo "$(CYAN)Compilando $<...$(RESET)"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	@mkdir -p $(OBJ_DIR)
+	@mkdir -p $(dir $@)
 	@echo "$(CYAN)Compilando $<...$(RESET)"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
