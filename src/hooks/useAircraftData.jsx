@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 
-const OPEN_SKY_URL = 'https://opensky-network.org/api/states/all?lamin=-40&lomin=-75&lamax=10&lomax=-30';
-const PROXY_URL = '/api/opensky?lamin=-40&lomin=-75&lamax=10&lomax=-30';
-const INITIAL_REFRESH_MS = 15000;
+const OPEN_SKY_URL = 'https://opensky-network.org/api/states/all?lamin=-40&lomin=-75&lamax=10&lomax=-3';
+const PROXY_URL = '/api/opensky?lamin=-40&lomin=-75&lamax=10&lomax=-3';
+const INITIAL_REFRESH_MS = 6000;
 const MAX_RETRY_MS = 60000;
+const CLIENT_ID = 'armeneze-api-client';
+const PASSWORD = 'adminmais';
 
 const AIRCRAFT_MOCK = [
   {
@@ -163,7 +165,12 @@ function useAircraftData(useApi = true) {
 
       try {
         const apiUrl = import.meta.env.DEV ? PROXY_URL : OPEN_SKY_URL;
-        const response = await fetch(apiUrl, { cache: 'no-store' });
+        const headers = new Headers();
+        headers.set('Authorization', 'Basic ' + btoa(CLIENT_ID + ':' + PASSWORD));
+        const response = await fetch(apiUrl, { 
+          cache: 'no-store',
+          headers: headers
+        });
         if (!active) return;
 
         if (!response.ok) {
