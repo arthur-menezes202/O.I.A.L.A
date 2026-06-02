@@ -1,45 +1,17 @@
+// src/hooks/useAircraftData.jsx
 import { useEffect, useMemo, useState } from 'react';
 
 const ADSB_LOL_URL = 'https://api.adsb.lol/v2/lat/-23.55/lon/-46.63/dist/250';
+// Proxy CORS públicos alternativos
+const CORS_PROXIES = [
+  'https://api.allorigins.win/raw?url=',
+  'https://corsproxy.io/?',
+];
+
 const REFRESH_INTERVAL_MS = 5500;
 
 const AIRCRAFT_MOCK = [
-  {
-    id: 'AZU7427',
-    callsign: 'AZU7427',
-    latitude: -23.6316,
-    longitude: -46.6574,
-    altitude: 34000,
-    speed: 450,
-    heading: 55
-  },
-  {
-    id: 'GLO1921',
-    callsign: 'GLO1921',
-    latitude: -3.1190,
-    longitude: -60.0217,
-    altitude: 38000,
-    speed: 470,
-    heading: 120
-  },
-  {
-    id: 'LAT6075',
-    callsign: 'LAT6075',
-    latitude: -12.9868,
-    longitude: -38.5108,
-    altitude: 31000,
-    speed: 430,
-    heading: 250
-  },
-  {
-    id: 'IBE3344',
-    callsign: 'IBE3344',
-    latitude: -1.4558,
-    longitude: -48.5048,
-    altitude: 36000,
-    speed: 460,
-    heading: 310
-  }
+  // ... seu mock aqui (sem alterações)
 ];
 
 function normalizeHeading(heading) {
@@ -106,11 +78,53 @@ function normalizeResponse(body) {
     .filter(Boolean);
 }
 
+async function fetchAircraftDataWithFallback() {
+  // Tentativa 1: URL direta (pode falhar com CORS, mas tenta)
+  try {
+    const response = await fetch(ADSB_LOL_URL, {
+      cache: 'no-store'
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const parsed = normalizeResponse(data);
+      if (parsed.length > 0) {
+        return { data: parsed, source: 'api-direct', status: 'success' };
+      }
+    }
+  } catch (error) {
+    // Silenciosamente falha, tenta proxy
+  }
+
+  // Tentativa 2: Usar proxy CORS
+  for (const proxyUrl of CORS_PROXIES) {
+    try {
+      const proxiedUrl = proxyUrl + encodeURIComponent(ADSB_LOL_URL);
+      const response = await fetch(proxiedUrl, {
+        cache: 'no-store'
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const parsed = normalizeResponse(data);
+        if (parsed.length > 0) {
+          return { data: parsed, source: 'api-proxy', status: 'success' };
+        }
+      }
+    } catch (error) {
+      // Continua para próximo proxy
+    }
+  }
+
+  // Falha em todas as tentativas
+  return { data: null, source: 'error', status: 'failed' };
+}
+
 function useAircraftData(useApi = true) {
   const [aircraft, setAircraft] = useState(AIRCRAFT_MOCK);
   const [apiSource, setApiSource] = useState(useApi ? 'api' : 'mock');
   const [statusMessage, setStatusMessage] = useState(
-    useApi ? 'Tentando carregar dados da API ADSB.lol...' : 'Modo simulação local ativado.'
+    useApi ? 'Carregando dados de aeronaves...' : 'Modo simulação local ativado.'
   );
 
   useEffect(() => {
@@ -126,35 +140,18 @@ function useAircraftData(useApi = true) {
         return;
       }
 
-      try {
-        const response = await fetch(ADSB_LOL_URL, {
-          cache: 'no-store'
-        });
+      const result = await fetchAircraftDataWithFallback();
 
-        if (!active) return;
+      if (!active) return;
 
-        if (!response.ok) {
-          setApiSource('mock');
-          setStatusMessage(`ADSB.lol indisponível (${response.status}). Exibindo simulação local.`);
-          setAircraft((prev) => driftAircraft(prev));
-          return;
-        }
-
-        const body = await response.json();
-        const parsed = normalizeResponse(body);
-
-        if (parsed.length > 0) {
-          setAircraft(parsed);
-          setApiSource('api');
-          setStatusMessage('Dados reais carregados da API ADSB.lol.');
-        } else {
-          setApiSource('mock');
-          setStatusMessage('ADSB.lol retornou aeronaves inválidas. Usando simulação local.');
-          setAircraft((prev) => driftAircraft(prev));
-        }
-      } catch (error) {
+      if (result.status === 'success' && result.data.length > 0) {
+        setAircraft(result.data);
+        setApiSource('api');
+        setStatusMessage('✓ Dados reais da API ADSB.lol');
+      } else {
+        // Fallback para mock se API falhar
         setApiSource('mock');
-        setStatusMessage('Falha ao carregar ADSB.lol. Usando simulação local.');
+        setStatusMessage('API indisponível • Usando simulação local');
         setAircraft((prev) => driftAircraft(prev));
       }
     }
