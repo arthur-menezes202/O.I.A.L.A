@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
-const OPEN_SKY_URL = 'https://opensky-network.org/api/states/all?lamin=-40&lomin=-75&lamax=10&lomax=-3';
-const PROXY_URL = '/api/opensky?lamin=-40&lomin=-75&lamax=10&lomax=-3';
-const INITIAL_REFRESH_MS = 6000;
-const MAX_RETRY_MS = 60000;
-const CLIENT_ID = 'armeneze-api-client';
-const PASSWORD = 'adminmais';
+const ADSB_LOL_URL = 'https://api.adsb.lol/v2/loded-250/lat/-23.55/lon/-46.63';
+const REFRESH_INTERVAL_MS = 5500;
 
 const AIRCRAFT_MOCK = [
   {
@@ -73,84 +69,52 @@ function driftAircraft(planes) {
   });
 }
 
-function parseAircraft(raw, index) {
-  if (!raw) return null;
+function parseAdsbAircraft(raw, index) {
+  if (!raw || typeof raw !== 'object') return null;
 
-  const isStateArray = Array.isArray(raw);
-  const latitude = Number(
-    isStateArray
-      ? raw[6]
-      : raw.latitude ?? raw.lat ?? raw[6] ?? raw[1]
-  );
-  const longitude = Number(
-    isStateArray
-      ? raw[5]
-      : raw.longitude ?? raw.lon ?? raw.lng ?? raw[2]
-  );
-  const altitude = Number(
-    isStateArray ? raw[13] ?? raw[7] : raw.geo_altitude ?? raw.altitude ?? raw[4] ?? raw[7] ?? 0
-  );
-  const speed = Number(
-    isStateArray ? raw[9] : raw.velocity ?? raw.speed ?? raw.gs ?? raw[9] ?? 0
-  );
-  const heading = Number(
-    isStateArray ? raw[10] : raw.heading ?? raw.track ?? raw.true_track ?? raw[10] ?? 0
-  );
-  const callsign = isStateArray
-    ? raw[1] ?? raw[0] ?? `AIR-${index}`
-    : raw.callsign ?? raw.registration ?? raw.icao24 ?? raw[0] ?? `AIR-${index}`;
-  const id = isStateArray
-    ? raw[0] ?? callsign ?? `aircraft-${index}`
-    : raw.icao24 ?? raw.id ?? callsign ?? `aircraft-${index}`;
+  const latitude = Number(raw.lat ?? 0);
+  const longitude = Number(raw.lon ?? 0);
+  const altitude = raw.alt_baro === 'ground' ? 0 : Number(raw.alt_baro ?? 0);
+  const speed = Number(raw.gs ?? 0);
+  const heading = Number(raw.track ?? 0);
+  const callsignRaw = typeof raw.flight === 'string' ? raw.flight.trim() : '';
+  const callsign = callsignRaw || 'UNK';
+  const id = raw.icao ?? `aircraft-${index}`;
 
-  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-    return {
-      id,
-      callsign: callsign.toString().trim() || `AIR-${index}`,
-      latitude,
-      longitude,
-      altitude: Number.isFinite(altitude) ? altitude : 0,
-      speed: Number.isFinite(speed) ? speed : 0,
-      heading: normalizeHeading(heading)
-    };
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
   }
 
-  return null;
+  return {
+    id,
+    callsign,
+    latitude,
+    longitude,
+    altitude: Number.isFinite(altitude) ? altitude : 0,
+    speed: Number.isFinite(speed) ? speed : 0,
+    heading: normalizeHeading(heading)
+  };
 }
 
 function normalizeResponse(body) {
-  if (!body) return [];
-
-  if (Array.isArray(body)) {
-    return body.map((item, index) => parseAircraft(item, index)).filter(Boolean);
+  if (!body || !Array.isArray(body.ac)) {
+    return [];
   }
 
-  if (Array.isArray(body.states)) {
-    return body.states.map((item, index) => parseAircraft(item, index)).filter(Boolean);
-  }
-
-  if (Array.isArray(body.data)) {
-    return body.data.map((item, index) => parseAircraft(item, index)).filter(Boolean);
-  }
-
-  if (Array.isArray(body.results)) {
-    return body.results.map((item, index) => parseAircraft(item, index)).filter(Boolean);
-  }
-
-  return [];
+  return body.ac
+    .map((item, index) => parseAdsbAircraft(item, index))
+    .filter(Boolean);
 }
 
 function useAircraftData(useApi = true) {
   const [aircraft, setAircraft] = useState(AIRCRAFT_MOCK);
   const [apiSource, setApiSource] = useState(useApi ? 'api' : 'mock');
   const [statusMessage, setStatusMessage] = useState(
-    useApi ? 'Tentando carregar dados da API OpenSky...' : 'Modo simulação local ativado.'
+    useApi ? 'Tentando carregar dados da API ADSB.lol...' : 'Modo simulação local ativado.'
   );
 
   useEffect(() => {
     let active = true;
-    let timer = 0;
-    let delay = INITIAL_REFRESH_MS;
 
     async function refresh() {
       if (!active) return;
@@ -159,63 +123,48 @@ function useAircraftData(useApi = true) {
         setApiSource('mock');
         setStatusMessage('Modo simulação local ativado.');
         setAircraft((prev) => driftAircraft(prev));
-        timer = window.setTimeout(refresh, INITIAL_REFRESH_MS);
         return;
       }
 
       try {
-        const apiUrl = import.meta.env.DEV ? PROXY_URL : OPEN_SKY_URL;
-        const headers = new Headers();
-        headers.set('Authorization', 'Basic ' + btoa(CLIENT_ID + ':' + PASSWORD));
-        const response = await fetch(apiUrl, { 
-          cache: 'no-store',
-          headers: headers
+        const response = await fetch(ADSB_LOL_URL, {
+          cache: 'no-store'
         });
+
         if (!active) return;
 
         if (!response.ok) {
           setApiSource('mock');
-          if (response.status === 429) {
-            delay = Math.min(delay * 2, MAX_RETRY_MS);
-            setStatusMessage(`Taxa limite atingida (429). Usando simulação local e tentando novamente em ${delay / 1000}s.`);
-          } else {
-            delay = 30000;
-            setStatusMessage(`API indisponível (${response.status}). Usando simulação local.`);
-          }
+          setStatusMessage(`ADSB.lol indisponível (${response.status}). Exibindo simulação local.`);
           setAircraft((prev) => driftAircraft(prev));
-        } else {
-          const body = await response.json();
-          const parsed = normalizeResponse(body);
+          return;
+        }
 
-          if (parsed.length > 0) {
-            setAircraft(parsed);
-            setApiSource('api');
-            setStatusMessage('Dados reais carregados da API OpenSky.');
-            delay = INITIAL_REFRESH_MS;
-          } else {
-            setApiSource('mock');
-            setStatusMessage('API retornou sem aeronaves válidas. Usando simulação local.');
-            setAircraft((prev) => driftAircraft(prev));
-            delay = 30000;
-          }
+        const body = await response.json();
+        const parsed = normalizeResponse(body);
+
+        if (parsed.length > 0) {
+          setAircraft(parsed);
+          setApiSource('api');
+          setStatusMessage('Dados reais carregados da API ADSB.lol.');
+        } else {
+          setApiSource('mock');
+          setStatusMessage('ADSB.lol retornou aeronaves inválidas. Usando simulação local.');
+          setAircraft((prev) => driftAircraft(prev));
         }
       } catch (error) {
-        delay = Math.min(delay * 2, MAX_RETRY_MS);
         setApiSource('mock');
-        setStatusMessage('Falha na conexão com a API. Usando simulação local.');
+        setStatusMessage('Falha ao carregar ADSB.lol. Usando simulação local.');
         setAircraft((prev) => driftAircraft(prev));
-      } finally {
-        if (active) {
-          timer = window.setTimeout(refresh, delay);
-        }
       }
     }
 
     refresh();
+    const intervalId = window.setInterval(refresh, REFRESH_INTERVAL_MS);
 
     return () => {
       active = false;
-      window.clearTimeout(timer);
+      window.clearInterval(intervalId);
     };
   }, [useApi]);
 
