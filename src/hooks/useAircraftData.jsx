@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-const ADSB_LOL_URL = 'https://api.adsb.lol/v2/loded-250/lat/-23.55/lon/-46.63';
+const ADSB_LOL_URL = 'https://api.adsb.lol/v2/lat/-23.55/lon/-46.63/dist/250';
 const REFRESH_INTERVAL_MS = 5500;
 
 const AIRCRAFT_MOCK = [
@@ -79,7 +79,7 @@ function parseAdsbAircraft(raw, index) {
   const heading = Number(raw.track ?? 0);
   const callsignRaw = typeof raw.flight === 'string' ? raw.flight.trim() : '';
   const callsign = callsignRaw || 'UNK';
-  const id = raw.icao ?? `aircraft-${index}`;
+  const id = raw.icao ?? raw.hex ?? `aircraft-${index}`;
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     return null;
